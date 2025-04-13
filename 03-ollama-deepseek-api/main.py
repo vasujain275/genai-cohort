@@ -1,9 +1,9 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-import httpx
+from ollama import AsyncClient
+import asyncio
 
-app = FastAPI()
-OLLAMA_URL = "http://localhost:11434"
+app = FastAPI(title="Ollama API Wrapper")
 
 
 class ChatRequest(BaseModel):
@@ -11,16 +11,29 @@ class ChatRequest(BaseModel):
     model: str = "deepseek-r1:8b"
 
 
-@app.post("/chat")
+class ChatResponse(BaseModel):
+    response: str
+
+
+@app.post("/chat", response_model=ChatResponse)
 async def chat_with_ollama(chat: ChatRequest):
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            f"{OLLAMA_URL}/api/generate",
-            json={
-                "model": chat.model,
-                "prompt": chat.prompt,
-                "stream": False,
-            },
+    try:
+        client = AsyncClient()
+        response = await client.generate(model=chat.model, prompt=chat.prompt)
+        return {"response": response["response"]}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error communicating with Ollama: {str(e)}"
         )
-        data = response.json()
-        return {"response": data.get("response")}
+
+
+# Health check endpoint
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8000)
